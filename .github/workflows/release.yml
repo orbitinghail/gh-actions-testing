@@ -1,0 +1,97 @@
+name: Release Graft
+
+on:
+  workflow_run:
+    workflows: ["Prepare release"]
+    types: [completed]
+    branches:
+      - "release/**"
+
+concurrency:
+  group: release-publish
+  cancel-in-progress: true
+
+jobs:
+  notify:
+    # Only continue if the upstream workflow finished without errors
+    if: |
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      checks: write
+    steps:
+      - name: Post GitHub check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const sha = github.event.workflow_run.head_sha;
+            const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            await github.rest.checks.create({
+              owner,
+              repo,
+              name: "Release workflow",
+              head_sha: sha,
+              status: "completed",
+              conclusion: "success",
+              output: {
+                title: "Release workflow",
+                summary: `See full run [here](${runUrl}).`
+              },
+              details_url: runUrl
+            });
+
+  release:
+    needs: notify
+    runs-on: ubuntu-24.04
+    environment: publishing
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          token: ${{secrets.GITHUB_TOKEN}}
+          persist-credentials: false
+
+      - name: Download distx artifact from the 'Prepare release' run
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4
+        with:
+          name: distx
+          run-id: ${{ github.event.workflow_run.id }}
+          path: distx/
+
+      - name: Read metadata files
+        id: meta
+        run: |
+          set -euo pipefail
+          VERSION=$(cat distx/version)
+
+          echo "version=$VERSION"             >>"$GITHUB_OUTPUT"
+
+          if [[ "$VERSION" == *-rc* ]]; then
+            echo "prerelease=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Push git tag
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          TAG_NAME="v${{ steps.meta.outputs.version }}"
+          git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
+          git push origin "$TAG_NAME"
+
+      - name: Update GitHub Release
+        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2
+        with:
+          name: v${{ steps.meta.outputs.version }}
+          draft: false
+          tag_name: v${{ steps.meta.outputs.version }}
+          prerelease: ${{ steps.meta.outputs.prerelease }}
+          make_latest: ${{ steps.meta.outputs.prerelease == 'false' }}

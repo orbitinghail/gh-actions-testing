@@ -1,0 +1,83 @@
+name: Prepare release
+
+on:
+  push:
+    branches:
+      - "release/**"
+
+jobs:
+  validate:
+    name: Compute release version
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          token: ${{secrets.GITHUB_TOKEN}}
+          persist-credentials: false
+
+      - name: Parse release version from branch name
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          branch="${GITHUB_REF_NAME}"
+
+          # Accepts:
+          #   release/vX.Y.Z
+          #   release/vX.Y.Z-rc.N
+          regex='^release/v([0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?)$'
+
+          if [[ "$branch" =~ $regex ]]; then
+            echo "version=${BASH_REMATCH[1]}" >>"$GITHUB_OUTPUT"
+          else
+            echo "::error::branch '$branch' is not a valid release branch (expected release/vX.Y.Z or release/vX.Y.Z-rc.N)" >&2
+            exit 1
+          fi
+
+  package:
+    runs-on: ubuntu-24.04
+    needs: [validate]
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          token: ${{secrets.GITHUB_TOKEN}}
+          persist-credentials: false
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2
+        with:
+          name: v${{ needs.validate.outputs.version }}
+          draft: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: distx/archives/*
+
+      - name: Add metadata to distx
+        run: |
+          mkdir distx
+          echo "${{ needs.validate.outputs.version }}" > distx/version
+
+      - name: Upload distx
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: distx
+          path: distx/
+          retention-days: 3
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2
+        with:
+          name: v${{ needs.validate.outputs.version }}
+          draft: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: distx/*
