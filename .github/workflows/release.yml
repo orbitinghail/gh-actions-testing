@@ -31,12 +31,12 @@ jobs:
             await github.rest.checks.create({
               owner,
               repo,
-              name: "Release workflow",
+              name: "Ready to release",
               head_sha: sha,
               status: "completed",
               conclusion: "success",
               output: {
-                title: "Release workflow",
+                title: "Ready to release",
                 summary: `See full run [here](${runUrl}).`
               },
               details_url: runUrl
