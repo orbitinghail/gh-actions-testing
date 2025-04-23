@@ -63,6 +63,7 @@ jobs:
           name: distx
           run-id: ${{ github.event.workflow_run.id }}
           path: distx/
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Read metadata files
         id: meta
