@@ -25,7 +25,7 @@ jobs:
         with:
           script: |
             const { owner, repo } = context.repo;
-            const sha = github.event.workflow_run.head_sha;
+            const sha = context.payload.workflow_run.head_sha;
             const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
 
             await github.rest.checks.create({
